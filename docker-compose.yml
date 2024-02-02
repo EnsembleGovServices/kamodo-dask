@@ -1,0 +1,49 @@
+version: "3.7"
+
+
+services:
+  kamodo-dask:
+    image: kamodo-dask
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 8000:8000
+  dev: # developer notebook to test microservice with db
+    ports:
+      - 8888:8888
+    depends_on:
+      - scheduler
+    image: kamodo-dask-dev
+    build: 
+      context: .
+      dockerfile: dev.Dockerfile
+    volumes:
+      - .:/code
+    container_name: kamodo-dask-dev
+    environment:
+      SCHEDULER_HOST: tcp://scheduler:8786
+      PARQUET_ENDPOINT: ${PARQUET_ENDPOINT}
+      ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+    command:
+      - jupyter
+      - notebook
+      - /code
+      - --port=8888
+      - --no-browser
+      - --ip=0.0.0.0
+      - --allow-root
+  scheduler:
+    image: kamodo-dask-dev
+    command: dask scheduler
+    ports:
+      - 8786:8786 # Scheduler port
+      - 8787:8787 # Dashboard port
+  worker:
+    image: kamodo-dask-dev
+    command: dask worker scheduler:8786
+    depends_on:
+      - scheduler
+
+

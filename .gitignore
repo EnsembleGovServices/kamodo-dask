@@ -1,0 +1,5 @@
+.env
+*.ipynb_checkpoints*
+hourly-outputs
+*.egg-info*
+*__pycache__*

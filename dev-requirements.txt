@@ -1,0 +1,9 @@
+tornado==6.4
+jupyter
+jupytext
+notebook==6.4.*
+httpx
+sgp4
+jinja2==3.0.3
+werkzeug==2.0.3
+itsdangerous==2.0.1
