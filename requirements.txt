@@ -1,0 +1,5 @@
+boto3==1.26.90
+s3fs>=2023.4.0
+dask[dataframe]
+distributed
+bokeh!=3.0.*,>=2.4.2
