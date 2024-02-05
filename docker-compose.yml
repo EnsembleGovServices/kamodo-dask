@@ -3,10 +3,10 @@ version: "3.7"
 
 services:
   kamodo-dask:
-    image: kamodo-dask
-    build: 
-      context: .
-      dockerfile: Dockerfile
+    image: daskdev/dask
+    # build: 
+    #   context: .
+    #   dockerfile: Dockerfile
     ports:
       - 8000:8000
   dev: # developer notebook to test microservice with db
@@ -14,10 +14,10 @@ services:
       - 8888:8888
     depends_on:
       - scheduler
-    image: kamodo-dask-dev
-    build: 
-      context: .
-      dockerfile: dev.Dockerfile
+    image: daskdev/notebook
+    # build: 
+    #   context: .
+    #   dockerfile: dev.Dockerfile
     volumes:
       - .:/code
     container_name: kamodo-dask-dev
@@ -35,13 +35,13 @@ services:
       - --ip=0.0.0.0
       - --allow-root
   scheduler:
-    image: kamodo-dask-dev
+    image: daskdev/dask
     command: dask scheduler
     ports:
       - 8786:8786 # Scheduler port
       - 8787:8787 # Dashboard port
   worker:
-    image: kamodo-dask-dev
+    image: daskdev/dask
     command: dask worker scheduler:8786
     depends_on:
       - scheduler

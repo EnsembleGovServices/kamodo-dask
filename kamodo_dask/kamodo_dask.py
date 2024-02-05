@@ -23,7 +23,7 @@ def fetch_file_range(start, end, prefix, postfix, freq='10T'):
     # Generate filenames matching list of dates
     date_range = pd.date_range(start, end, freq=freq)
     file_format = f'{prefix}%Y-%m-%dT%H:%M:%S{postfix}' #2024-01-10T17:50:00
-    return date_range.strftime(file_format).to_list()
+    return date_range.strftime(file_format).to_list(), date_range
 
 
 # Function to get the Parquet file buffer
@@ -65,7 +65,7 @@ def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix=
     h_range = h_start, h_end # floor/cel is handled in filter_partion
     print(f'start: {start}, end: {end}')
 
-    filenames = fetch_file_range(start, end, endpoint, suffix)
+    filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
     if len(filenames) > 0:
         print(f'filenames: {filenames[0]} -> {filenames[-1]}')
 
