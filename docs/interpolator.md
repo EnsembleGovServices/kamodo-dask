@@ -11,7 +11,8 @@ client
 ```
 
 ```python
-from kamodo_dask.kamodo_dask import df_from_dask
+# from kamodo_dask.kamodo_dask import df_from_dask, 
+from kamodo_dask.kamodo_dask import filter_partition, fetch_file_range
 
 import os
 
@@ -51,6 +52,10 @@ storage_options = {
     'key': os.environ.get('ACCESS_KEY'),
     'secret': os.environ.get('SECRET_KEY')
 }
+```
+
+```python
+filter_partition
 ```
 
 ```python
@@ -109,6 +114,10 @@ filenames
 ```
 
 ```python
+ignore_metadata_file=True  
+```
+
+```python
 parquet_endpoint
 ```
 
@@ -120,11 +129,46 @@ start, end
 
 # Call your function with appropriate parameters
 # Make sure to replace `endpoint`, `start`, `end`, `h_start`, `h_end` with actual values
-df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
+ddf = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
+```
+
+### Attempt 3
+Use client.persist to bring the filtered data into the scheduler
+
+```python
+## Attempt #3 using persist to bring data
+
+def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
+    start = start.floor(round_time)
+    end = end.ceil(round_time)
+
+    h_range = h_start, h_end # floor/cel is handled in filter_partion
+    print(f'start: {start}, end: {end}')
+
+    filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
+    if len(filenames) > 0:
+        print(f'filenames: {filenames[0]} -> {filenames[-1]}')
+
+
+    # Read Parquet files using Dask - leveraging the ability to read multiple files at once
+    ddf = dd.read_parquet(filenames, engine='fastparquet', storage_options=storage_options)
+
+    meta = ddf._meta
+    
+    # Filter the DataFrame
+    ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
+
+    ddf = client.persist(ddf)
+    
+    # Compute the result to get a Pandas DataFrame
+    df = ddf.compute()
+
+    return df
+
 ```
 
 ```python
-df = df.compute()
+ddf = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
 ```python
