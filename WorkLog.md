@@ -1,3 +1,4 @@
+* meeting with ollie, wally, jeff, david, elyse, don
 * fixed worker connection, loadded 4d multiindex
 
 # 2024-02-07 10:16:10.942542: clock-in: T-10m 
