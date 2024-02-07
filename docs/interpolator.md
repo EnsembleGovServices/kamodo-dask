@@ -40,22 +40,18 @@ import os
 import pandas as pd
 import warnings
 
-# Ignore FutureWarning from fastparquet
-warnings.filterwarnings('ignore', category=FutureWarning)
+# # Ignore FutureWarning from fastparquet
+# warnings.filterwarnings('ignore', category=FutureWarning)
 
-# Connect to the Dask scheduler
-scheduler_host = os.environ.get('SCHEDULER_HOST')
-print(f'kamodo-dask connecting to scheduler_host: {scheduler_host}')
-client = Client(scheduler_host)
+# # Connect to the Dask scheduler
+# scheduler_host = os.environ.get('SCHEDULER_HOST')
+# print(f'kamodo-dask connecting to scheduler_host: {scheduler_host}')
+# client = Client(scheduler_host)
 
 storage_options = {
     'key': os.environ.get('ACCESS_KEY'),
     'secret': os.environ.get('SECRET_KEY')
 }
-```
-
-```python
-filter_partition
 ```
 
 ```python
@@ -163,28 +159,36 @@ def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix=
     # Compute the result to get a Pandas DataFrame
     df = ddf.compute()
 
+    repetitions = len(df)//len(date_range)
+
+    times = np.repeat(date_range, repetitions)
+
+    lat_values = df.index.get_level_values('lat')
+    lon_values = df.index.get_level_values('lon')
+    h_values = df.index.get_level_values('h')
+
+
+    # Create new tuples by zipping the arrays together
+    new_tuples = list(zip(times, lat_values, lon_values, h_values))
+
+    # Create the new MultiIndex
+    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lat", "lon", "h"])
+    df = df.set_index(new_index)
+
     return df
 
 ```
 
 ```python
-ddf = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
+os.environ.get('SCHEDULER_HOST')
+```
+
+```python
+df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
 ```python
 df
-```
-
-```python
-# Get the number of rows (as a delayed object)
-num_rows = df.shape[0]
-
-# Get the number of columns (immediately available)
-num_columns = len(df.columns)
-
-# To print the shape, you need to compute `num_rows`
-num_rows_computed = num_rows.compute()
-print(f"Shape of ddf: ({num_rows_computed}, {num_columns})")
 ```
 
 ```python
