@@ -109,30 +109,12 @@ filenames, date_range = fetch_file_range(start.floor('15T'), end.ceil('15T'), pa
 filenames
 ```
 
-```python
-ignore_metadata_file=True  
-```
-
-```python
-parquet_endpoint
-```
-
-```python
-start, end
-```
-
-```python
-
-# Call your function with appropriate parameters
-# Make sure to replace `endpoint`, `start`, `end`, `h_start`, `h_end` with actual values
-ddf = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
-```
-
 ### Attempt 3
 Use client.persist to bring the filtered data into the scheduler
 
 ```python
 ## Attempt #3 using persist to bring data
+import numpy as np
 
 def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
     start = start.floor(round_time)
@@ -184,13 +166,106 @@ os.environ.get('SCHEDULER_HOST')
 ```
 
 ```python
+end - start
+```
+
+```python
 df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
 ```python
-df
+from kamodo import Kamodo
 ```
 
 ```python
+from scipy.interpolate import RegularGridInterpolator
+```
 
+```python
+class KamodoDask(Kamodo):
+    def __init__(self, df, fill_value=0, **kwargs):
+        self.df = df # temporary
+
+        # assumes time is outermost level
+        # convert to seconds since Unix Epoch since January 1st, 1970 at UTC
+        self.time = [v.value/1e9 for v in self.df.index.levels[0]] 
+        
+        # datetime as int would be in nanoseconds. convert to seconds from epoch
+        self.levels = {'time': self.time}
+        self.interpolators = {}
+        
+        for level in df.index.levels[1:]:
+            self.levels[level.name] = level.values
+
+        var_shape = tuple([len(v) for v in self.levels.values()])
+        var_levels = tuple(self.levels.values())
+
+        for var_name in df.columns:
+            var_data = df[var_name].fillna(fill_value).values.reshape(var_shape)
+            rgi = RegularGridInterpolator(var_levels,
+                                          var_data,
+                                          bounds_error=False,
+                                          fill_value=fill_value)
+            self.interpolators[var_name] = rgi
+        
+        super(KamodoDask, self).__init__(**kwargs)
+```
+
+```python
+k = KamodoDask(df)
+```
+
+```python
+k.interpolators
+```
+
+```python
+for col in df.columns:
+    pass
+```
+
+```python
+col
+```
+
+```python
+midpoint = [v.mean() for (n,v) in k.levels.items()]
+```
+
+```python
+midpoint
+```
+
+```python
+k.interpolators['rho[kg/m^3]']()
+```
+
+```python
+df.index.levels[0]
+```
+
+```python
+t = df.index.levels[0].values
+dt = (t-t[0]).astype('timedelta64[s]').astype(int) # convert to seconds since beginning of available data
+lon = df.index.levels[1].values
+lat = df.index.levels[2].values
+h = df.index.levels[3].values
+
+rho_data = df['rho[kg/m^3]'].fillna(0).values.reshape((len(t), len(lon), len(lat), len(h)))
+
+rgi = RegularGridInterpolator((dt, lon, lat, h), rho_data, bounds_error=False, fill_value=0)
+
+
+@kamodofy(units='kg/m^3', data={})
+@gridify(t=dt, lon=lon, lat=lat, h=h, squeeze=True, order='C')
+def rho_ijkl(hvec):
+    return rgi(hvec)
+
+@kamodofy(units='kg/m^3')
+def rho(hvec_4d):
+    return rgi(hvec_4d)
+
+
+
+ctipe = Kamodo(rho=rho, rho_ijkl=rho_ijkl)
 ```
