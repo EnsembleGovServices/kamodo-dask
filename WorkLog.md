@@ -1,9 +1,11 @@
+* working interpolator
 
 # 2024-02-08 18:32:56.341136: clock-in
 
 # 2024-02-08 11:01:06.158391: clock-out
 
 * KamodoDask object
+* meeting with jeff, dhruv, hassan, david, don
 
 # 2024-02-08 09:57:07.647505: clock-in
 

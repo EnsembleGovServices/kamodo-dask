@@ -12,7 +12,7 @@ client
 
 ```python
 # from kamodo_dask.kamodo_dask import df_from_dask, 
-from kamodo_dask.kamodo_dask import filter_partition, fetch_file_range
+from kamodo_dask.kamodo_dask import df_from_dask, KamodoDask
 
 import os
 
@@ -33,239 +33,48 @@ h_start, h_end = 292500.0, 357500.0
 # df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
-```python
-from dask.distributed import Client
-import dask.dataframe as dd
-import os
-import pandas as pd
-import warnings
-
-# # Ignore FutureWarning from fastparquet
-# warnings.filterwarnings('ignore', category=FutureWarning)
-
-# # Connect to the Dask scheduler
-# scheduler_host = os.environ.get('SCHEDULER_HOST')
-# print(f'kamodo-dask connecting to scheduler_host: {scheduler_host}')
-# client = Client(scheduler_host)
-
-storage_options = {
-    'key': os.environ.get('ACCESS_KEY'),
-    'secret': os.environ.get('SECRET_KEY')
-}
-```
-
-```python
-def fetch_file_range(start, end, prefix, postfix, freq='10T'):
-    # Generate filenames matching list of dates
-    date_range = pd.date_range(start, end, freq=freq)
-    file_format = f'{prefix}%Y-%m-%dT%H:%M:%S{postfix}'  # Example: '2024-01-10T17:50:00'
-    return date_range.strftime(file_format).to_list(), date_range
-
-def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
-    start = start.floor(round_time)
-    end = end.ceil(round_time)
-    
-    filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
-    if not filenames:
-        print("No filenames to process.")
-        return pd.DataFrame()  # or appropriate empty response
-
-    print(f'Processing files from {filenames[0]} to {filenames[-1]}')
-
-    # Read Parquet files using Dask - leveraging the ability to read multiple files at once
-    ddf = dd.read_parquet(filenames, engine='fastparquet', storage_options=storage_options)
-
-    # No need to manually add 'filename' column as it might not be necessary for further processing
-    # If you still need to manipulate or use the filename, consider keeping it in the DataFrame as you did
-
-    # Assuming additional processing is required here, similar to your original code
-    # For example, filtering based on 'h' value and adding timestamp columns would go here
-
-    return ddf  # Return Dask DataFrame for further processing or computation
-
-```
-
-```python
-import os
-
-parquet_endpoint = os.environ.get('PARQUET_ENDPOINT')
-```
-
-```python
-parquet_endpoint
-```
-
-```python
-start
-```
-
-```python
-# have fetch_file_range return times as well as filenames
-# then we can assign the timestamp column after dask is finished processing
-filenames, date_range = fetch_file_range(start.floor('15T'), end.ceil('15T'), parquet_endpoint, '.parquet')
-```
-
-```python
-filenames
-```
-
-### Attempt 3
-Use client.persist to bring the filtered data into the scheduler
-
-```python
-## Attempt #3 using persist to bring data
-import numpy as np
-
-def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
-    start = start.floor(round_time)
-    end = end.ceil(round_time)
-
-    h_range = h_start, h_end # floor/cel is handled in filter_partion
-    print(f'start: {start}, end: {end}')
-
-    filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
-    if len(filenames) > 0:
-        print(f'filenames: {filenames[0]} -> {filenames[-1]}')
-
-
-    # Read Parquet files using Dask - leveraging the ability to read multiple files at once
-    ddf = dd.read_parquet(filenames, engine='fastparquet', storage_options=storage_options)
-
-    meta = ddf._meta
-    
-    # Filter the DataFrame
-    ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
-
-    ddf = client.persist(ddf)
-    
-    # Compute the result to get a Pandas DataFrame
-    df = ddf.compute()
-
-    repetitions = len(df)//len(date_range)
-
-    times = np.repeat(date_range, repetitions)
-
-    lat_values = df.index.get_level_values('lat')
-    lon_values = df.index.get_level_values('lon')
-    h_values = df.index.get_level_values('h')
-
-
-    # Create new tuples by zipping the arrays together
-    new_tuples = list(zip(times, lat_values, lon_values, h_values))
-
-    # Create the new MultiIndex
-    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lat", "lon", "h"])
-    df = df.set_index(new_index)
-
-    return df
-
-```
-
-```python
-os.environ.get('SCHEDULER_HOST')
-```
-
-```python
-end - start
-```
+Fetch a 4D dataframe using the parquet endpoint
 
 ```python
 df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
-```python
-from kamodo import Kamodo
-```
-
-```python
-from scipy.interpolate import RegularGridInterpolator
-```
-
-```python
-class KamodoDask(Kamodo):
-    def __init__(self, df, fill_value=0, **kwargs):
-        self.df = df # temporary
-
-        # assumes time is outermost level
-        # convert to seconds since Unix Epoch since January 1st, 1970 at UTC
-        self.time = [v.value/1e9 for v in self.df.index.levels[0]] 
-        
-        # datetime as int would be in nanoseconds. convert to seconds from epoch
-        self.levels = {'time': self.time}
-        self.interpolators = {}
-        
-        for level in df.index.levels[1:]:
-            self.levels[level.name] = level.values
-
-        var_shape = tuple([len(v) for v in self.levels.values()])
-        var_levels = tuple(self.levels.values())
-
-        for var_name in df.columns:
-            var_data = df[var_name].fillna(fill_value).values.reshape(var_shape)
-            rgi = RegularGridInterpolator(var_levels,
-                                          var_data,
-                                          bounds_error=False,
-                                          fill_value=fill_value)
-            self.interpolators[var_name] = rgi
-        
-        super(KamodoDask, self).__init__(**kwargs)
-```
+Construct a Kamodo object using the retrieved data
 
 ```python
 k = KamodoDask(df)
 ```
 
 ```python
-k.interpolators
+k.get_midpoint()
 ```
 
 ```python
-for col in df.columns:
-    pass
+k.rho_ijkl(time=1707264300.0, lat=0, lon=0)
 ```
 
 ```python
-col
+import plotly.graph_objs as go
+from plotly.offline import init_notebook_mode
+init_notebook_mode(connected=True)
+```
+
+## Plot curve
+
+```python
+midpoint = k.get_midpoint()
 ```
 
 ```python
-midpoint = [v.mean() for (n,v) in k.levels.items()]
+k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0,  h=midpoint['h'])))
+```
+
+## plot slice
+
+```python
+k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0)))
 ```
 
 ```python
-midpoint
-```
-
-```python
-k.interpolators['rho[kg/m^3]']()
-```
-
-```python
-df.index.levels[0]
-```
-
-```python
-t = df.index.levels[0].values
-dt = (t-t[0]).astype('timedelta64[s]').astype(int) # convert to seconds since beginning of available data
-lon = df.index.levels[1].values
-lat = df.index.levels[2].values
-h = df.index.levels[3].values
-
-rho_data = df['rho[kg/m^3]'].fillna(0).values.reshape((len(t), len(lon), len(lat), len(h)))
-
-rgi = RegularGridInterpolator((dt, lon, lat, h), rho_data, bounds_error=False, fill_value=0)
-
-
-@kamodofy(units='kg/m^3', data={})
-@gridify(t=dt, lon=lon, lat=lat, h=h, squeeze=True, order='C')
-def rho_ijkl(hvec):
-    return rgi(hvec)
-
-@kamodofy(units='kg/m^3')
-def rho(hvec_4d):
-    return rgi(hvec_4d)
-
-
-
-ctipe = Kamodo(rho=rho, rho_ijkl=rho_ijkl)
+k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(time=midpoint['time'], h=midpoint['h'])))
 ```

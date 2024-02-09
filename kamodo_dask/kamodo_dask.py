@@ -2,7 +2,12 @@ from dask.distributed import Client
 import dask
 import os
 import pandas as pd
+import numpy as np
 import dask.dataframe as dd
+import re
+
+from kamodo import Kamodo, kamodofy, gridify
+from scipy.interpolate import RegularGridInterpolator
 import warnings
 
 # Ignore FutureWarning from fastparquet
@@ -22,7 +27,8 @@ storage_options = {
 def fetch_file_range(start, end, prefix, postfix, freq='10T'):
     # Generate filenames matching list of dates
     date_range = pd.date_range(start, end, freq=freq)
-    file_format = f'{prefix}%Y-%m-%dT%H:%M:%S{postfix}' #2024-01-10T17:50:00
+    # Example: '2024-01-10T17:50:00'
+    file_format = f'{prefix}%Y-%m-%dT%H:%M:%S{postfix}'
     return date_range.strftime(file_format).to_list(), date_range
 
 
@@ -63,52 +69,99 @@ def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix=
     end = end.ceil(round_time)
 
     h_range = h_start, h_end # floor/cel is handled in filter_partion
-    print(f'start: {start}, end: {end}')
+    # print(f'start: {start}, end: {end}')
 
     filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
-    if len(filenames) > 0:
-        print(f'filenames: {filenames[0]} -> {filenames[-1]}')
 
-    # Read each file into a Dask DataFrame and add a 'filename' column
-    ddfs = []
-    for filename in filenames:
-        df = dd.read_parquet(filename, engine='fastparquet', storage_options=storage_options)
-        df['filename'] = filename
-        ddfs.append(df)
+    # if len(filenames) > 0:
+    #     print(f'filenames: {filenames[0]} -> {filenames[-1]}')
 
-    # Concatenate all Dask DataFrames
-    ddf = dd.concat(ddfs)
+    # Read Parquet files using Dask - leveraging the ability to read multiple files at once
+    ddf = dd.read_parquet(filenames, engine='fastparquet', storage_options=storage_options)
 
-    # Function to apply timestamp to a partition
-    def apply_timestamp(partition):
-        # Extract filename from the partition
-        unique_filenames = partition['filename'].unique()
-        if len(unique_filenames) != 1:
-            raise ValueError("Multiple filenames in a single partition")
-        filename = unique_filenames[0]  # Use standard indexing for NumPy array
-
-        # Extract and apply timestamp
-        timestamp = extract_timestamp_from_filename(filename, f'{density_files_3d}{prefix}', '.parquet')
-        return add_timestamp_to_partition(partition, timestamp)
-
-    # Define metadata for the output DataFrame
-    meta = ddf._meta.assign(timestamp=pd.Timestamp('now'))
-
-    # Apply timestamps to each partition and provide meta
-    ddf = ddf.map_partitions(apply_timestamp, meta=meta)
-
+    meta = ddf._meta
+    
     # Filter the DataFrame
-    filtered_ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
+    ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
 
+    ddf = client.persist(ddf)
+    
     # Compute the result to get a Pandas DataFrame
-    df = filtered_ddf.compute()
+    df = ddf.compute()
 
-    # Reset the existing multi-index
-    df.reset_index(inplace=True)
+    repetitions = len(df)//len(date_range)
 
-    # Set the new multi-index with 'timestamp' as the first level
-    df.set_index(['timestamp', 'lon', 'lat', 'h'], inplace=True)
+    times = np.repeat(date_range, repetitions)
 
-    # Drop the 'filename' column
-    df.drop(columns=['filename'], inplace=True)
+    lat_values = df.index.get_level_values('lat')
+    lon_values = df.index.get_level_values('lon')
+    h_values = df.index.get_level_values('h')
 
+
+    # Create new tuples by zipping the arrays together
+    new_tuples = list(zip(times, lat_values, lon_values, h_values))
+
+    # Create the new MultiIndex
+    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lat", "lon", "h"])
+    df = df.set_index(new_index)
+
+    return df
+
+
+class KamodoDask(Kamodo):
+    def __init__(self, df, fill_value=0, **kwargs):
+        self.df = df
+        
+        self.fill_value = fill_value
+
+        # assumes time is outermost level
+        # convert to seconds since Unix Epoch since January 1st, 1970 at UTC
+        self.time = np.array([v.value/1e9 for v in self.df.index.levels[0]])
+        
+        
+        # datetime as int would be in nanoseconds. convert to seconds from epoch
+        self.levels = {'time': self.time}
+        self.interpolators = {}
+        
+        for level in df.index.levels[1:]:
+            self.levels[level.name] = level.values
+
+        super(KamodoDask, self).__init__(**kwargs)
+
+        self.initialize_interpolators()
+
+
+    def initialize_interpolators(self):
+        var_shape = tuple([len(v) for v in self.levels.values()])
+        var_levels = tuple(self.levels.values())
+
+        for var_str in self.df.columns:
+            # Regular expression to extract variable name and units
+            match = re.search(r'(\w+)\[(.*?)\]', var_str)
+            variable_name = match.group(1)
+            units = match.group(2)
+    
+            var_data = self.df[var_str].fillna(self.fill_value).values.reshape(var_shape)
+            rgi = RegularGridInterpolator(var_levels,
+                                          var_data,
+                                          bounds_error=False,
+                                          fill_value=self.fill_value)
+            @kamodofy(units=units)
+            def interpolator(xvec):
+                return rgi(xvec)
+            
+            gridify_args = self.levels
+
+            @kamodofy(units=units, data={})
+            @gridify(squeeze=True, order='C', **self.levels)
+            def interpolator_ijkl(xvec):
+                return rgi(xvec)
+
+            self[variable_name] = interpolator
+            self[variable_name + '_ijkl'] = interpolator_ijkl
+
+    def get_bounds(self):
+        return {k: (v.min(), v.max()) for k,v in self.levels.items()}
+
+    def get_midpoint(self):
+        return {k: v.mean() for k,v in self.levels.items()}
