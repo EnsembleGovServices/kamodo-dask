@@ -24,7 +24,7 @@ print(parquet_endpoint)
 end = pd.Timestamp.utcnow() - pd.Timedelta(days=2)
 
 # fetch up to n hours of data
-hours_of_data = 1
+hours_of_data = 4
 start = end - pd.Timedelta(seconds=hours_of_data*60*60)
 
 # set range of altitude to fetch
@@ -39,6 +39,14 @@ Fetch a 4D dataframe using the parquet endpoint
 df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
+```python
+df.shape
+```
+
+```python
+df.head()
+```
+
 Construct a Kamodo object using the retrieved data
 
 ```python
@@ -46,11 +54,12 @@ k = KamodoDask(df)
 ```
 
 ```python
-k.get_midpoint()
+midpoint = k.get_midpoint()
+midpoint
 ```
 
 ```python
-k.rho_ijkl(time=1707264300.0, lat=0, lon=0)
+k.rho_ijkl(time=midpoint['time'], lat=0, lon=0)
 ```
 
 ```python
@@ -66,6 +75,22 @@ midpoint = k.get_midpoint()
 ```
 
 ```python
+k.get_bounds()
+```
+
+```python
+k
+```
+
+```python
+midpoint['h']
+```
+
+```python
+k.rho_ijkl(lon=200, lat=0, h=midpoint['h'])
+```
+
+```python
 k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0,  h=midpoint['h'])))
 ```
 
@@ -77,4 +102,8 @@ k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0)))
 
 ```python
 k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(time=midpoint['time'], h=midpoint['h'])))
+```
+
+```python
+
 ```

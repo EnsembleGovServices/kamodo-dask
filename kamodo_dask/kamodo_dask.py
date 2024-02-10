@@ -55,7 +55,7 @@ def filter_partition(df, h_range):
         h_upper = df['h_temp'].max()
 
     # Ensure filtering within the adjusted bounds
-    filtered_df = df[df['h_temp'].between(h_lower, h_upper, inclusive=True)]
+    filtered_df = df[df['h_temp'].between(h_lower, h_upper, inclusive='both')]
 
     # Drop the temporary column
     filtered_df = filtered_df.drop(columns=['h_temp'])
