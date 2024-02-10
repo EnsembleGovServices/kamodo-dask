@@ -1,3 +1,4 @@
+* allowing out of bounds query
 # 2024-02-08 19:49:49.734870: clock-out
 
 * fixed build

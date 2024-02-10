@@ -43,16 +43,25 @@ def filter_partition(df, h_range):
     # Convert the 'h' level of the index to a separate column for filtering
     df['h_temp'] = pd.to_numeric(df.index.get_level_values('h'), errors='coerce')
     
-    # Filter by altitude. get the closest available data that bounds the query
+    # Determine the bounds for filtering
     h_min, h_max = h_range
     h_lower = df['h_temp'][(df['h_temp'] < h_min)].max()
     h_upper = df['h_temp'][(df['h_temp'] > h_max)].min()
-    filtered_df = df[df['h_temp'].between(h_lower, h_upper)] # inclusive
+
+    # Adjust h_lower or h_upper if they are NaN
+    if pd.isna(h_lower):
+        h_lower = df['h_temp'].min()
+    if pd.isna(h_upper):
+        h_upper = df['h_temp'].max()
+
+    # Ensure filtering within the adjusted bounds
+    filtered_df = df[df['h_temp'].between(h_lower, h_upper, inclusive=True)]
 
     # Drop the temporary column
     filtered_df = filtered_df.drop(columns=['h_temp'])
 
     return filtered_df
+
 
 def extract_timestamp_from_filename(filename, prefix, postfix):
     # Extract the timestamp from the filename
