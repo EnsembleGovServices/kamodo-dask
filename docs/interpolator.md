@@ -1,5 +1,5 @@
 ```python
-from kamodo_dask.kamodo_dask import client
+from kamodo_dask.dask_config import client
 ```
 
 ```python
@@ -11,7 +11,8 @@ client
 ```
 
 ```python
-# from kamodo_dask.kamodo_dask import df_from_dask, 
+# from kamodo_dask.kamodo_dask import df_from_dask,
+from kamodo_dask.dask_config import client, storage_options
 from kamodo_dask.kamodo_dask import df_from_dask, KamodoDask
 
 import os
@@ -36,7 +37,7 @@ h_start, h_end = 292500.0, 357500.0
 Fetch a 4D dataframe using the parquet endpoint
 
 ```python
-df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
+df = df_from_dask(client, parquet_endpoint, storage_options, start, end, h_start, h_end)
 ```
 
 ```python
@@ -50,16 +51,16 @@ df.head()
 Construct a Kamodo object using the retrieved data
 
 ```python
-k = KamodoDask(df)
+kd = KamodoDask(df)
 ```
 
 ```python
-midpoint = k.get_midpoint()
+midpoint = kd.get_midpoint()
 midpoint
 ```
 
 ```python
-k.rho_ijkl(time=midpoint['time'], lat=0, lon=0)
+kd.rho_ijkl(time=midpoint['time'], lat=0, lon=0)
 ```
 
 ```python
@@ -71,15 +72,15 @@ init_notebook_mode(connected=True)
 ## Plot curve
 
 ```python
-midpoint = k.get_midpoint()
+midpoint = kd.get_midpoint()
 ```
 
 ```python
-k.get_bounds()
+kd.get_bounds()
 ```
 
 ```python
-k
+kd
 ```
 
 ```python
@@ -87,21 +88,25 @@ midpoint['h']
 ```
 
 ```python
-k.rho_ijkl(lon=200, lat=0, h=midpoint['h'])
+kd.rho_ijkl(lon=200, lat=0, h=midpoint['h'])
 ```
 
 ```python
-k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0,  h=midpoint['h'])))
+kd.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0,  h=midpoint['h'])))
 ```
 
 ## plot slice
 
 ```python
-k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0)))
+kd.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(lon=200, lat=0)))
 ```
 
 ```python
-k.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(time=midpoint['time'], h=midpoint['h'])))
+kd.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(time=midpoint['time'], h=midpoint['h'])))
+```
+
+```python
+kd.plot('rho_ijkl', plot_partial=dict(rho_ijkl=dict(time=midpoint['time'], lon=180)))
 ```
 
 ```python

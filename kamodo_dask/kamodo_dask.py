@@ -1,4 +1,3 @@
-from dask.distributed import Client, default_client, LocalCluster, get_worker
 import dask
 import os
 import pandas as pd
@@ -13,45 +12,6 @@ import warnings
 # Ignore FutureWarning from fastparquet
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-# Dask scheduler (automatically manages workers)
-scheduler_host = os.environ.get('SCHEDULER_HOST')
-print(f'kamodo-dask connecting to scheduler_host: {scheduler_host}')
-
-
-def get_or_create_dask_client():
-    try:
-        # Check if running within a worker process. prevents scheduler from trying to connect to itself
-        get_worker()
-        is_worker = True
-    except ValueError:
-        is_worker = False
-
-    # Only attempt to create a client if not running in the scheduler process
-    if not is_worker:
-        try:
-            # Try to get the default Dask client if it already exists
-            client = default_client()
-        except ValueError:
-            # If no client exists, try to get the scheduler address from an environment variable
-            scheduler_host = os.getenv('SCHEDULER_HOST', None)
-            
-            if scheduler_host:
-                # If the environment variable is set, use it to connect to the scheduler
-                client = Client(scheduler_host)
-            else:
-                # If the environment variable is not set, optionally start a local cluster
-                warnings.warn('SCHEDULER_HOST environment variable not set. Creating local cluster.')
-                client = Client(LocalCluster())
-        return client
-
-
-client = get_or_create_dask_client()
-
-
-storage_options = {
-    'key': os.environ.get('ACCESS_KEY'),
-    'secret': os.environ.get('SECRET_KEY')
-}
 
 def fetch_file_range(start, end, prefix, postfix, freq='10T'):
     # Generate filenames matching list of dates
@@ -102,7 +62,7 @@ def add_timestamp_to_partition(df, timestamp):
     df['timestamp'] = pd.to_datetime(timestamp)
     return df
 
-def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
+def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
     start = start.floor(round_time)
     end = end.ceil(round_time)
 
@@ -137,10 +97,10 @@ def df_from_dask(endpoint, start, end, h_start, h_end, round_time='10T', suffix=
 
 
     # Create new tuples by zipping the arrays together
-    new_tuples = list(zip(times, lat_values, lon_values, h_values))
+    new_tuples = list(zip(times, lon_values, lat_values, h_values))
 
     # Create the new MultiIndex
-    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lat", "lon", "h"])
+    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lon", "lat", "h"])
     df = df.set_index(new_index)
 
     return df

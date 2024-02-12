@@ -1,3 +1,4 @@
+* refactor dask entry, fix indexing
 
 # 2024-02-12 12:28:12.594338: clock-in: T-36m 
 
