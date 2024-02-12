@@ -1,3 +1,4 @@
+* prevent scheduler from connecting to itself
 * prevent spawning new connection
 # 2024-02-10 16:16:09.160490: clock-out: T-2h 
 
