@@ -1,4 +1,4 @@
-from dask.distributed import Client, default_client, LocalCluster
+from dask.distributed import Client, default_client, LocalCluster, get_worker
 import dask
 import os
 import pandas as pd
