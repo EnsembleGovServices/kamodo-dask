@@ -1,5 +1,6 @@
 from dask.distributed import Client, default_client, LocalCluster, get_worker
 import os
+import warnings
 
 # Dask scheduler (automatically manages workers)
 scheduler_host = os.environ.get('SCHEDULER_HOST')
