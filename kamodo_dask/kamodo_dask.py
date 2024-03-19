@@ -9,6 +9,8 @@ from kamodo import Kamodo, kamodofy, gridify
 from scipy.interpolate import RegularGridInterpolator
 import warnings
 
+PARQUET_ENGINE = os.environ.get('PARQUET_ENGINE', 'fastparquet')
+
 # Ignore FutureWarning from fastparquet
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -24,7 +26,7 @@ def fetch_file_range(start, end, prefix, postfix, freq='10T'):
 # Function to get the Parquet file buffer
 def get_parquet_buffer(df):
     buffer = io.BytesIO()
-    df.to_parquet(buffer, engine='fastparquet', index=False)
+    df.to_parquet(buffer, engine=PARQUET_ENGINE, index=False)
     buffer.seek(0)
     return buffer
 
@@ -75,7 +77,7 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
     #     print(f'filenames: {filenames[0]} -> {filenames[-1]}')
 
     # Read Parquet files using Dask - leveraging the ability to read multiple files at once
-    ddf = dd.read_parquet(filenames, engine='fastparquet', storage_options=storage_options)
+    ddf = dd.read_parquet(filenames, engine=PARQUET_ENGINE, storage_options=storage_options)
 
     meta = ddf._meta
     
