@@ -22,11 +22,11 @@ parquet_endpoint = os.environ.get('PARQUET_ENDPOINT')
 print(parquet_endpoint)
 
 # run this every time you want to fetch new data
-end = pd.Timestamp.utcnow() - pd.Timedelta(days=2)
+start = pd.Timestamp.utcnow() - pd.Timedelta(days=1.5)
 
 # fetch up to n hours of data
-hours_of_data = 4
-start = end - pd.Timedelta(seconds=hours_of_data*60*60)
+hours_of_data = 8
+end = start + pd.Timedelta(seconds=hours_of_data*60*60)
 
 # set range of altitude to fetch
 h_start, h_end = 292500.0, 357500.0
@@ -34,7 +34,14 @@ h_start, h_end = 292500.0, 357500.0
 # df = df_from_dask(parquet_endpoint, start, end, h_start, h_end)
 ```
 
+```python
+start, end
+```
+
 Fetch a 4D dataframe using the parquet endpoint
+
+
+## Last converted date
 
 ```python
 df = df_from_dask(client, parquet_endpoint, storage_options, start, end, h_start, h_end)

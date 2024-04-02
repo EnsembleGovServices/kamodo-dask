@@ -8,19 +8,84 @@ import re
 from kamodo import Kamodo, kamodofy, gridify
 from scipy.interpolate import RegularGridInterpolator
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import boto3
+
 
 PARQUET_ENGINE = os.environ.get('PARQUET_ENGINE', 'fastparquet')
 
 # Ignore FutureWarning from fastparquet
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+s3_client = boto3.client('s3',
+                         aws_access_key_id=os.environ['ACCESS_KEY'],
+                         aws_secret_access_key=os.environ['SECRET_KEY'])
+
+def check_existence(bucket, key):
+    """Function to check existence of a single file."""
+    try:
+        s3_client.head_object(Bucket=bucket, Key=key)
+        return True
+    except s3_client.exceptions.ClientError:
+        return False
+
+def check_file_existence(filenames, prefix, postfix):
+    """Check if files exist in the bucket using concurrent requests and return their timestamps, preserving order."""
+    # Initialize a list to hold the results with the same length as filenames
+    results = [None] * len(filenames)
+
+    tasks = []
+    for index, filename in enumerate(filenames):
+        fname_array = filename.split('//')[1].split('/')
+        parquet_bucket = fname_array[0]
+        parquet_fname = '/'.join(fname_array[1:])
+        tasks.append((index, parquet_bucket, parquet_fname, filename))
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        future_to_details = {executor.submit(check_existence, task[1], task[2]): task for task in tasks}
+        for future in as_completed(future_to_details):
+            index, _, _, full_filename = future_to_details[future]
+            if future.result():
+                datetime_str = full_filename.replace(prefix, '').replace(postfix, '')
+                try:
+                    timestamp = pd.to_datetime(datetime_str, format='%Y-%m-%dT%H:%M:%S')
+                    # Store the result at the corresponding index to preserve order
+                    results[index] = (full_filename, timestamp)
+                except ValueError as e:
+                    print(f"Error parsing {datetime_str}: {e}")
+                    # If there's an error parsing, you could decide to set a specific value here
+
+    # Filter out None values in case some files didn't exist or couldn't be parsed
+    existing_files_with_times = [result for result in results if result is not None]
+
+    return existing_files_with_times
+
 
 def fetch_file_range(start, end, prefix, postfix, freq='10T'):
     # Generate filenames matching list of dates
     date_range = pd.date_range(start, end, freq=freq)
-    # Example: '2024-01-10T17:50:00'
     file_format = f'{prefix}%Y-%m-%dT%H:%M:%S{postfix}'
-    return date_range.strftime(file_format).to_list(), date_range
+    potential_filenames = date_range.strftime(file_format).to_list()
+
+    # Check which filenames actually exist and get their timestamps
+    existing_filenames_with_times = check_file_existence(potential_filenames, prefix, postfix)
+
+    if len(existing_filenames_with_times) != len(potential_filenames):
+        print(f'existing filenames {len(existing_filenames_with_times)} do not match requested {len(potential_filenames)}')
+
+    if not existing_filenames_with_times:
+        return [], None
+
+    # Separate filenames and timestamps
+    existing_filenames, timestamps = zip(*existing_filenames_with_times)
+    
+    if timestamps:
+        reduced_date_range = pd.date_range(start=min(timestamps), end=max(timestamps), freq=freq)
+    else:
+        reduced_date_range = None
+
+    return list(existing_filenames), reduced_date_range
 
 
 # Function to get the Parquet file buffer
@@ -72,6 +137,9 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
     # print(f'start: {start}, end: {end}')
 
     filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
+
+    if len(filenames) == 0:
+        raise IOError(f"No files found matching query\n start: {start}\n end: {end}")
 
     # if len(filenames) > 0:
     #     print(f'filenames: {filenames[0]} -> {filenames[-1]}')

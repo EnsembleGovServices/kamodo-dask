@@ -1,3 +1,4 @@
+* limiting query to existing files
 
 # 2024-04-02 10:35:56.560896: clock-in: T-13m 
 
