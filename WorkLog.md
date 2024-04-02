@@ -1,5 +1,9 @@
+
+# 2024-04-02 10:35:56.560896: clock-in: T-13m 
+
 * adding parquet_engine environment variable
 * fix warnings import
+
 # 2024-02-12 12:29:41.156263: clock-out
 
 * refactor dask entry, fix indexing
@@ -46,6 +50,7 @@
 # 2024-02-05 18:51:21.830424: clock-in
 
 * computing timestamps later
+
 # 2024-02-02 12:00:07.778721: clock-out
 
 * docker compose services
