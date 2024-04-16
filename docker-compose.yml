@@ -4,6 +4,7 @@ version: "3.7"
 services:
   kamodo-dask:
     image: kamodo/dask
+    platform: ${PLATFORM}
     build:
       context: .
       dockerfile: Dockerfile
@@ -14,6 +15,7 @@ services:
       - 8888:8888
     depends_on:
       - scheduler
+      - worker
     image: kamodo/daskdev
     build:
       context: .
@@ -21,9 +23,11 @@ services:
     volumes:
       - .:/code
     container_name: kamodo-dask-dev
+    platform: ${PLATFORM}
     environment:
       SCHEDULER_HOST: tcp://scheduler:8786
       PARQUET_ENDPOINT: ${PARQUET_ENDPOINT}
+      PARQUET_ENGINE: pyarrow
       ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
       SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
     command:
@@ -40,6 +44,19 @@ services:
     ports:
       - 8786:8786 # Scheduler port
       - 8787:8787 # Dashboard port
+  worker:
+    image: kamodo/dask
+    command: dask worker tcp://scheduler:8786 --no-nanny --memory-limit 4GB
+    depends_on:
+      - scheduler
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "dask"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      replicas: 4
   worker1:
     image: kamodo/dask
     command: dask worker tcp://scheduler:8786 --no-nanny

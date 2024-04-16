@@ -9,8 +9,9 @@ from kamodo import Kamodo, kamodofy, gridify
 from scipy.interpolate import RegularGridInterpolator
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dask.distributed import CancelledError
 
-import boto3
+from .dask_config import s3_client
 
 
 PARQUET_ENGINE = os.environ.get('PARQUET_ENGINE', 'fastparquet')
@@ -18,9 +19,6 @@ PARQUET_ENGINE = os.environ.get('PARQUET_ENGINE', 'fastparquet')
 # Ignore FutureWarning from fastparquet
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-s3_client = boto3.client('s3',
-                         aws_access_key_id=os.environ['ACCESS_KEY'],
-                         aws_secret_access_key=os.environ['SECRET_KEY'])
 
 def check_existence(bucket, key):
     """Function to check existence of a single file."""
@@ -129,51 +127,62 @@ def add_timestamp_to_partition(df, timestamp):
     df['timestamp'] = pd.to_datetime(timestamp)
     return df
 
+
+
 def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
     start = start.floor(round_time)
     end = end.ceil(round_time)
-
-    h_range = h_start, h_end # floor/cel is handled in filter_partion
-    # print(f'start: {start}, end: {end}')
+    h_range = h_start, h_end  # floor/ceil is handled in filter_partition
 
     filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
 
-    if len(filenames) == 0:
+    if not filenames:
         raise IOError(f"No files found matching query\n start: {start}\n end: {end}")
 
-    # if len(filenames) > 0:
-    #     print(f'filenames: {filenames[0]} -> {filenames[-1]}')
+    ddf = None  # Initialize ddf as None to safely use it in except blocks
+    try:
+        ddf = dd.read_parquet(filenames, engine=PARQUET_ENGINE, storage_options=storage_options)
+        meta = ddf._meta
+        ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
+        ddf = client.persist(ddf)
 
-    # Read Parquet files using Dask - leveraging the ability to read multiple files at once
-    ddf = dd.read_parquet(filenames, engine=PARQUET_ENGINE, storage_options=storage_options)
+        max_attempts = 3
+        attempts = 0
+        while attempts < max_attempts:
+            try:
+                df = ddf.compute()  # Adjust timeout as needed
+                break  # If compute is successful, break out of the loop
+            except (TimeoutError, CancelledError) as e:
+                attempts += 1
+                print(f"Attempt {attempts} failed with {e}. Retrying...")
+                if attempts < max_attempts:
+                    ddf = client.restart()  # Restart client to clear potential deadlocks and free resources
+                    ddf = client.persist(ddf)
+                else:
+                    if ddf is not None:
+                        client.cancel(ddf)  # Cancel all associated tasks and free up resources only if ddf is defined
+                    raise Exception("Max retries reached. Failing now.")
 
-    meta = ddf._meta
-    
-    # Filter the DataFrame
-    ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
+        # Post-processing steps
+        repetitions = len(df) // len(date_range)
+        times = np.repeat(date_range, repetitions)
+        lat_values = df.index.get_level_values('lat')
+        lon_values = df.index.get_level_values('lon')
+        h_values = df.index.get_level_values('h')
 
-    ddf = client.persist(ddf)
-    
-    # Compute the result to get a Pandas DataFrame
-    df = ddf.compute()
+        # Create new tuples by zipping the arrays together
+        new_tuples = list(zip(times, lon_values, lat_values, h_values))
+        # Create the new MultiIndex
+        new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lon", "lat", "h"])
+        df = df.set_index(new_index)
 
-    repetitions = len(df)//len(date_range)
+        return df
 
-    times = np.repeat(date_range, repetitions)
-
-    lat_values = df.index.get_level_values('lat')
-    lon_values = df.index.get_level_values('lon')
-    h_values = df.index.get_level_values('h')
-
-
-    # Create new tuples by zipping the arrays together
-    new_tuples = list(zip(times, lon_values, lat_values, h_values))
-
-    # Create the new MultiIndex
-    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lon", "lat", "h"])
-    df = df.set_index(new_index)
-
-    return df
+    except Exception as e:
+        if ddf is not None:
+            client.cancel(ddf)  # Ensure cleanup on any exception, only if ddf is defined
+        print(f"Error processing data: {e}")
+        raise
 
 
 class KamodoDask(Kamodo):

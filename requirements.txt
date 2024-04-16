@@ -1,3 +1,4 @@
+pyarrow
 fastparquet
 boto3==1.26.90
 s3fs>=2023.4.0
