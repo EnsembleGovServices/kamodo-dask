@@ -128,36 +128,71 @@ def add_timestamp_to_partition(df, timestamp):
     return df
 
 
+def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, round_time='10T', suffix='.parquet', npartitions=None, partition_size=None, verbose=False):
+    if len(client.ncores()) == 0:
+        raise RuntimeError("No available workers in the Dask cluster. Please ensure that your Dask cluster is properly configured and has active workers.")
 
-def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, round_time='10T', suffix='.parquet'):
     start = start.floor(round_time)
     end = end.ceil(round_time)
-    h_range = h_start, h_end  # floor/ceil is handled in filter_partition
+    h_range = h_start, h_end
 
     filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
 
     if not filenames:
         raise IOError(f"No files found matching query\n start: {start}\n end: {end}")
 
-    ddf = None  # Initialize ddf as None to safely use it in except blocks
+    if verbose:
+        print('initializing with filenames')
+        print(filenames)
+
     try:
         ddf = dd.read_parquet(filenames, engine=PARQUET_ENGINE, storage_options=storage_options)
+
+        if verbose:
+            print(f"Initial number of partitions: {ddf.npartitions}")
+
+        # Repartition if necessary to match the number of workers
+        if npartitions is not None:
+            if verbose:
+                print(f'repartitioning from {ddf.npartitions} to {npartitions}')
+            ddf = ddf.repartition(npartitions=npartitions)
+            if verbose:
+                print(f"Number of partitions after repartitioning: {ddf.npartitions}")
+        elif partition_size is not None:
+            if verbose:
+                print(f'repartitioning from {ddf.npartitions} to {partition_size} MB per partition')
+            ddf = ddf.repartition(partition_size=partition_size)
+            if verbose:
+                print(f"Number of partitions after repartitioning: {ddf.npartitions}")
+
         meta = ddf._meta
         ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
-        ddf = client.persist(ddf)
+
+        if verbose:
+            print(f"Number of partitions after map_partitions: {ddf.npartitions}")
+
+        # Ensure no implicit repartitioning is happening
+        if verbose:
+            print("Persisting DataFrame")
+        ddf = client.persist(ddf, retries=3)
+
+        if verbose:
+            print(f"Number of partitions after persist: {ddf.npartitions}")
 
         max_attempts = 3
         attempts = 0
         while attempts < max_attempts:
             try:
-                df = ddf.compute()  # Adjust timeout as needed
+                df = ddf.compute(timeout=1200)  # Adjust timeout as needed
                 break  # If compute is successful, break out of the loop
             except (TimeoutError, CancelledError) as e:
                 attempts += 1
                 print(f"Attempt {attempts} failed with {e}. Retrying...")
                 if attempts < max_attempts:
-                    ddf = client.restart()  # Restart client to clear potential deadlocks and free resources
-                    ddf = client.persist(ddf)
+                    # Clean up memory and rebalance data
+                    client.cancel(ddf)
+                    client.rebalance()
+                    ddf = client.persist(ddf, retries=3)  # Persist the DataFrame again
                 else:
                     if ddf is not None:
                         client.cancel(ddf)  # Cancel all associated tasks and free up resources only if ddf is defined
@@ -170,14 +205,15 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
         lon_values = df.index.get_level_values('lon')
         h_values = df.index.get_level_values('h')
 
-        # Create new tuples by zipping the arrays together
         new_tuples = list(zip(times, lon_values, lat_values, h_values))
-        # Create the new MultiIndex
         new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lon", "lat", "h"])
         df = df.set_index(new_index)
 
         return df
-
+    except FileNotFoundError as m:
+        print('files not found')
+        print(filenames)
+        raise
     except Exception as e:
         if ddf is not None:
             client.cancel(ddf)  # Ensure cleanup on any exception, only if ddf is defined

@@ -45,7 +45,7 @@ import s3fs
 
 # Define the custom configuration for the boto3 client
 boto_config = Config(
-    max_pool_connections=50,  # Custom connection pool size
+    max_pool_connections=max_pool_connections,  # Custom connection pool size
     retries = {
         'max_attempts': 10,
         'mode': 'standard'
@@ -81,7 +81,7 @@ fs = s3fs.S3FileSystem(
 storage_options = {
     'key': os.environ['ACCESS_KEY'],
     'secret': os.environ['SECRET_KEY'],
-    'client_kwargs': {
-        'config': Config(max_pool_connections=50)  # Custom connection pool size
+    'config_kwargs': {
+        'max_pool_connections': max_pool_connections  # Custom connection pool size
     }
 }
