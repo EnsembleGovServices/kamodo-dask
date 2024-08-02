@@ -93,29 +93,6 @@ def get_parquet_buffer(df):
     buffer.seek(0)
     return buffer
 
-def filter_partition(df, h_range):
-    # Convert the 'h' level of the index to a separate column for filtering
-    df['h_temp'] = pd.to_numeric(df.index.get_level_values('h'), errors='coerce')
-    
-    # Determine the bounds for filtering
-    h_min, h_max = h_range
-    h_lower = df['h_temp'][(df['h_temp'] < h_min)].max()
-    h_upper = df['h_temp'][(df['h_temp'] > h_max)].min()
-
-    # Adjust h_lower or h_upper if they are NaN
-    if pd.isna(h_lower):
-        h_lower = df['h_temp'].min()
-    if pd.isna(h_upper):
-        h_upper = df['h_temp'].max()
-
-    # Ensure filtering within the adjusted bounds
-    filtered_df = df[df['h_temp'].between(h_lower, h_upper, inclusive='both')]
-
-    # Drop the temporary column
-    filtered_df = filtered_df.drop(columns=['h_temp'])
-
-    return filtered_df
-
 
 def extract_timestamp_from_filename(filename, prefix, postfix):
     # Extract the timestamp from the filename
@@ -128,7 +105,81 @@ def add_timestamp_to_partition(df, timestamp):
     return df
 
 
+def parquet_to_ddf(filenames, storage_options=None, engine='pyarrow', verbose=False):
+    """
+    Constructs a Dask DataFrame from a list of Parquet files.
+
+    Parameters:
+    - filenames: List of Parquet file paths.
+    - storage_options: Dictionary of storage options to pass to the backend file system (e.g., S3 options).
+    - engine: Parquet engine to use ('pyarrow' or 'fastparquet').
+    - verbose: If True, print additional information.
+
+    Returns:
+    - ddf: Dask DataFrame.
+    """
+    if verbose:
+        print("Initializing Dask DataFrame with filenames:")
+        for _ in filenames:
+            print(_)
+
+    # Create Dask DataFrame from the list of Parquet files
+    ddf = dd.read_parquet(filenames, engine=engine, storage_options=storage_options)
+
+    if verbose:
+        print(f"Number of partitions: {ddf.npartitions}")
+
+    return ddf
+
+def filter_partition(df, h_range):
+    # Convert the 'h' level of the index to a separate column for filtering
+    df['h_temp'] = pd.to_numeric(df.index.get_level_values('h'), errors='coerce')
+
+    # Determine the bounds for filtering
+    h_min, h_max = h_range
+
+    # Ensure filtering within the specified bounds
+    filtered_df = df[df['h_temp'].between(h_min, h_max, inclusive='both')]
+
+    # Drop the temporary column
+    filtered_df = filtered_df.drop(columns=['h_temp'])
+
+    return filtered_df
+
+def df_from_parquet(client, parquet_endpoint, storage_options, engine, start, end, h_start, h_end, filter_function=None):
+    filenames, date_range = fetch_file_range(start, end, parquet_endpoint, '.parquet')
+
+    ddf = parquet_to_ddf(filenames, storage_options=storage_options, engine=engine)
+
+    h_range = h_start, h_end
+
+    meta = ddf._meta
+
+    if filter_function is not None:
+        ddf_filtered = ddf.map_partitions(filter_function, h_range=h_range, meta=meta)
+
+    # Persist the filtered DataFrame
+    ddf_filtered = client.persist(ddf_filtered)
+
+    # Compute the result to get a Pandas DataFrame
+    df = ddf_filtered.compute()
+
+    # Post-processing steps
+    repetitions = len(df) // len(date_range)
+    times = np.repeat(date_range, repetitions)
+    lat_values = df.index.get_level_values('lat')
+    lon_values = df.index.get_level_values('lon')
+    h_values = df.index.get_level_values('h')
+
+    new_tuples = list(zip(times, lon_values, lat_values, h_values))
+    new_index = pd.MultiIndex.from_tuples(new_tuples, names=["time", "lon", "lat", "h"])
+    df = df.set_index(new_index)
+
+    return df
+
 def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, round_time='10T', suffix='.parquet', npartitions=None, partition_size=None, verbose=False):
+    """this code is defunct, please use kamodo_dask.df_from_parquet"""
+
     if len(client.ncores()) == 0:
         raise RuntimeError("No available workers in the Dask cluster. Please ensure that your Dask cluster is properly configured and has active workers.")
 
@@ -166,7 +217,7 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
                 print(f"Number of partitions after repartitioning: {ddf.npartitions}")
 
         meta = ddf._meta
-        ddf = ddf.map_partitions(filter_partition, h_range=h_range, meta=meta)
+        ddf = ddf.map_partitions(filter_altitude, h_range=h_range, meta=meta)
 
         if verbose:
             print(f"Number of partitions after map_partitions: {ddf.npartitions}")

@@ -1,4 +1,4 @@
-tornado==6.4
+tornado==6.4.1
 jupyter
 jupytext
 notebook==6.4.*
