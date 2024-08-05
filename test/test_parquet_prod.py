@@ -8,21 +8,8 @@ import os
 import dask
 import pandas as pd
 from kamodo_dask.dask_config import client, storage_options
-from kamodo_dask.kamodo_dask import df_from_parquet, fetch_file_range, filter_partition
+from kamodo_dask.kamodo_dask import df_from_parquet, fetch_file_range
 
-
-import cloudpickle
-
-from kamodo_dask.kamodo_dask import filter_partition
-
-try:
-    serialized_func = cloudpickle.dumps(filter_partition)
-    print("Function serialized successfully.")
-except Exception as e:
-    print(f"Serialization error: {e}")
-
-
-dask.config.set({"distributed.worker.serialization": cloudpickle})
 
 def main():
     # Fetch the parquet endpoint from environment variables
@@ -49,8 +36,8 @@ def main():
     print(f"Start Time: {start}, End Time: {end}")
 
     # Fetch the 4D dataframe using the parquet endpoint
-    df = df_from_parquet(client, parquet_endpoint, storage_options, 'pyarrow', start, end, h_start, h_end,
-            filter_function=filter_partition)
+    df = df_from_parquet(client, parquet_endpoint, storage_options, 'pyarrow',
+        start, end, h_start, h_end)
 
     # Print the resulting dataframe
     print(df)

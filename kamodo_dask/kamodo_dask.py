@@ -158,6 +158,11 @@ def df_from_parquet(client, parquet_endpoint, storage_options, engine, start, en
     if filter_function is not None:
         ddf_filtered = ddf.map_partitions(filter_function, h_range=h_range, meta=meta)
 
+    # Use query to filter data
+    query_str = f'h >= {h_start} and h <= {h_end}'
+    ddf_filtered = ddf.query(query_str)
+
+
     # Persist the filtered DataFrame
     ddf_filtered = client.persist(ddf_filtered)
 
@@ -216,16 +221,21 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
             if verbose:
                 print(f"Number of partitions after repartitioning: {ddf.npartitions}")
 
-        meta = ddf._meta
-        ddf = ddf.map_partitions(filter_altitude, h_range=h_range, meta=meta)
 
-        if verbose:
-            print(f"Number of partitions after map_partitions: {ddf.npartitions}")
+        # Use query to filter data
+        query_str = f'h >= {h_start} and h <= {h_end}'
+        ddf_filtered = ddf.query(query_str)
+
+        # meta = ddf._meta
+        # ddf = ddf.map_partitions(filter_altitude, h_range=h_range, meta=meta)
+
+        # if verbose:
+        #     print(f"Number of partitions after map_partitions: {ddf.npartitions}")
 
         # Ensure no implicit repartitioning is happening
         if verbose:
             print("Persisting DataFrame")
-        ddf = client.persist(ddf, retries=3)
+        ddf = client.persist(ddf_filtered, retries=3)
 
         if verbose:
             print(f"Number of partitions after persist: {ddf.npartitions}")
