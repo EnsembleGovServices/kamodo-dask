@@ -8,6 +8,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    depends_on:
+      - scheduler
+      - worker
+    volumes:
+      - .:/code
+    environment:
+      SCHEDULER_HOST: tcp://scheduler:8786
+      PARQUET_ENDPOINT: ${PARQUET_ENDPOINT}
+      PARQUET_ENGINE: pyarrow
+      ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
     ports:
       - 8000:8000
   dev: # developer notebook to test microservice with db
@@ -30,6 +41,7 @@ services:
       PARQUET_ENGINE: pyarrow
       ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
       SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      MALLOC_CONF: "abort_conf:true" # hides warning <jemalloc>: MADV_DONTNEED does not work
     command:
       - jupyter
       - notebook
@@ -39,14 +51,16 @@ services:
       - --ip=0.0.0.0
       - --allow-root
   scheduler:
+    platform: ${PLATFORM}
     image: kamodo/dask
     command: dask scheduler
     ports:
       - 8786:8786 # Scheduler port
       - 8787:8787 # Dashboard port
   worker:
+    platform: ${PLATFORM}
     image: kamodo/dask
-    command: dask worker tcp://scheduler:8786 --no-nanny --memory-limit 4GB
+    command: dask worker tcp://scheduler:8786
     depends_on:
       - scheduler
     healthcheck:
@@ -58,21 +72,25 @@ services:
     deploy:
       replicas: 4
   worker1:
+    platform: ${PLATFORM}
     image: kamodo/dask
     command: dask worker tcp://scheduler:8786 --no-nanny
     depends_on:
       - scheduler
   worker2:
+    platform: ${PLATFORM}
     image: kamodo/dask
     command: dask worker tcp://scheduler:8786 --no-nanny
     depends_on:
       - scheduler
   worker3:
+    platform: ${PLATFORM}
     image: kamodo/dask
     command: dask worker tcp://scheduler:8786 --no-nanny
     depends_on:
       - scheduler
   worker4:
+    platform: ${PLATFORM}
     image: kamodo/dask
     command: dask worker tcp://scheduler:8786 --no-nanny
     depends_on:
