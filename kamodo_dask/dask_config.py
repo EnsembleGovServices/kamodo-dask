@@ -52,21 +52,20 @@ boto_config = Config(
     }
 )
 
-# Create a boto3 client using the custom configuration
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=os.environ['ACCESS_KEY'],
-    aws_secret_access_key=os.environ['SECRET_KEY'],
-    config=boto_config
-)
-
-
-
 # Create a boto3 session with AWS credentials
 boto_session = boto3.Session(
     aws_access_key_id=os.environ['ACCESS_KEY'],
     aws_secret_access_key=os.environ['SECRET_KEY'],
 )
+
+def get_s3_client():
+    """use session to create client to keep connection open"""
+    s3_client = boto_session.client('s3', config=boto_config)
+
+    return s3_client
+
+s3_client = get_s3_client()
+
 
 # Configuring the S3FileSystem with the custom connection pool size
 fs = s3fs.S3FileSystem(

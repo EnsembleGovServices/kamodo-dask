@@ -1,3 +1,4 @@
+* use existing boto session
 * query height to avoid repartition error
 * testing repartitioning error
 * altitude repartitioning test
