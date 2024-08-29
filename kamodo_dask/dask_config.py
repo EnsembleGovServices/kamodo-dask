@@ -45,28 +45,27 @@ import s3fs
 
 # Define the custom configuration for the boto3 client
 boto_config = Config(
-    max_pool_connections=50,  # Custom connection pool size
+    max_pool_connections=max_pool_connections,  # Custom connection pool size
     retries = {
         'max_attempts': 10,
         'mode': 'standard'
     }
 )
 
-# Create a boto3 client using the custom configuration
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=os.environ['ACCESS_KEY'],
-    aws_secret_access_key=os.environ['SECRET_KEY'],
-    config=boto_config
-)
-
-
-
 # Create a boto3 session with AWS credentials
 boto_session = boto3.Session(
     aws_access_key_id=os.environ['ACCESS_KEY'],
     aws_secret_access_key=os.environ['SECRET_KEY'],
 )
+
+def get_s3_client():
+    """use session to create client to keep connection open"""
+    s3_client = boto_session.client('s3', config=boto_config)
+
+    return s3_client
+
+s3_client = get_s3_client()
+
 
 # Configuring the S3FileSystem with the custom connection pool size
 fs = s3fs.S3FileSystem(
@@ -81,7 +80,7 @@ fs = s3fs.S3FileSystem(
 storage_options = {
     'key': os.environ['ACCESS_KEY'],
     'secret': os.environ['SECRET_KEY'],
-    'client_kwargs': {
-        'config': Config(max_pool_connections=50)  # Custom connection pool size
+    'config_kwargs': {
+        'max_pool_connections': max_pool_connections  # Custom connection pool size
     }
 }

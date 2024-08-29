@@ -1,3 +1,7 @@
+* use existing boto session
+* query height to avoid repartition error
+* testing repartitioning error
+* altitude repartitioning test
 # 2024-04-16 11:00:42.524247: clock-out
 
 * debugging file ranges
