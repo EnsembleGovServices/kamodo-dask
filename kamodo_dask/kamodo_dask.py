@@ -79,7 +79,7 @@ def fetch_file_range(start, end, prefix, postfix, freq='10T'):
     existing_filenames, timestamps = zip(*existing_filenames_with_times)
     
     if timestamps:
-        reduced_date_range = pd.date_range(start=min(timestamps), end=max(timestamps), freq=freq)
+        reduced_date_range = pd.date_range(start=min(timestamps), end=max(timestamps), freq=freq, tz='UTC')
     else:
         reduced_date_range = None
 
@@ -182,17 +182,22 @@ def df_from_parquet(client, parquet_endpoint, storage_options, engine, start, en
 
     return df
 
-def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, round_time='10T', suffix='.parquet', npartitions=None, partition_size=None, verbose=False):
-    """this code is defunct, please use kamodo_dask.df_from_parquet"""
+def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, h_values, round_time='10T', suffix='.parquet', npartitions=None, partition_size=None, verbose=False):
+    """Fetch dataframe from dask"""
 
     if len(client.ncores()) == 0:
         raise RuntimeError("No available workers in the Dask cluster. Please ensure that your Dask cluster is properly configured and has active workers.")
 
-    start = start.floor(round_time)
-    end = end.ceil(round_time)
-    h_range = h_start, h_end
+    start_rounded = start.floor(round_time)
+    end_rounded = end.ceil(round_time)
 
-    filenames, date_range = fetch_file_range(start, end, endpoint, suffix)
+    # Find the closest values for h_start and h_end
+    closest_h_start = h_values[h_values <= h_start].max()
+    closest_h_end = h_values[h_values >= h_end].min()
+
+    h_range = closest_h_start, closest_h_end
+
+    filenames, date_range = fetch_file_range(start_rounded, end_rounded, endpoint, suffix)
 
     if not filenames:
         raise IOError(f"No files found matching query\n start: {start}\n end: {end}")
@@ -200,6 +205,15 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
     if verbose:
         print('initializing with filenames')
         print(filenames)
+
+    try:
+        assert start > date_range.min()
+    except:
+        raise IOError(f'start time out of bounds: {start} !> {date_range.min()}')
+    try:
+        assert end < date_range.max()
+    except:
+        raise IOError(f'end time out of bounds: {end} !< {date_range.end()}')
 
     try:
         ddf = dd.read_parquet(filenames, engine=PARQUET_ENGINE, storage_options=storage_options)
@@ -223,14 +237,8 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
 
 
         # Use query to filter data
-        query_str = f'h >= {h_start} and h <= {h_end}'
+        query_str = f'h >= {closest_h_start} and h <= {closest_h_end}'
         ddf_filtered = ddf.query(query_str)
-
-        # meta = ddf._meta
-        # ddf = ddf.map_partitions(filter_altitude, h_range=h_range, meta=meta)
-
-        # if verbose:
-        #     print(f"Number of partitions after map_partitions: {ddf.npartitions}")
 
         # Ensure no implicit repartitioning is happening
         if verbose:
