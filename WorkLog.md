@@ -1,3 +1,4 @@
+* fix error msg
 * fix range query
 * use existing boto session
 * query height to avoid repartition error

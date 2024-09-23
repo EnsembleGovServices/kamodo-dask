@@ -213,7 +213,7 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
     try:
         assert end < date_range.max()
     except:
-        raise IOError(f'end time out of bounds: {end} !< {date_range.end()}')
+        raise IOError(f'end time out of bounds: {end} !< {date_range.max()}')
 
     try:
         ddf = dd.read_parquet(filenames, engine=PARQUET_ENGINE, storage_options=storage_options)
