@@ -191,9 +191,17 @@ def df_from_dask(client, endpoint, storage_options, start, end, h_start, h_end, 
     start_rounded = start.floor(round_time)
     end_rounded = end.ceil(round_time)
 
-    # Find the closest values for h_start and h_end
-    closest_h_start = h_values[h_values <= h_start].max()
-    closest_h_end = h_values[h_values >= h_end].min()
+    # Check that h_values has valid entries for closest_h_start and closest_h_end
+    if h_values[h_values <= h_start].size > 0:
+        closest_h_start = h_values[h_values <= h_start].max()
+    else:
+        raise ValueError("No values in h_values are <= h_start. Check the input ranges.")
+
+    if h_values[h_values >= h_end].size > 0:
+        closest_h_end = h_values[h_values >= h_end].min()
+    else:
+        raise ValueError("No values in h_values are >= h_end. Check the input ranges.")
+
 
     h_range = closest_h_start, closest_h_end
 
